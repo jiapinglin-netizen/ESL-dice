@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESL Visual Dice - 互动学习骰子</title>
+    <!-- 使用 CDN 加载 React, ReactDOM 和 Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 使用 Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; background-color: #020617; }
+        
+        .dice-scene {
+            width: 200px;
+            height: 200px;
+            perspective: 1000px;
+            margin: 40px auto;
+        }
+        .dice-cube {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 2.5s cubic-bezier(0.2, 0.8, 0.3, 1.15);
+        }
+        .dice-face {
+            position: absolute;
+            width: 200px;
+            height: 200px;
+            border: 3px solid rgba(255,255,255,0.4);
+            border-radius: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: inset 0 0 40px rgba(0,0,0,0.3), 0 15px 30px rgba(0,0,0,0.4);
+            backface-visibility: hidden;
+            color: white;
+        }
+        /* 定义六个面的 3D 位置 */
+        .dice-face-1 { transform: rotateY(0deg) translateZ(100px); }
+        .dice-face-2 { transform: rotateY(90deg) translateZ(100px); }
+        .dice-face-3 { transform: rotateY(180deg) translateZ(100px); }
+        .dice-face-4 { transform: rotateY(-90deg) translateZ(100px); }
+        .dice-face-5 { transform: rotateX(90deg) translateZ(100px); }
+        .dice-face-6 { transform: rotateX(-90deg) translateZ(100px); }
+
+        /* 动画效果 */
+        @keyframes bounceCustom {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        .animate-bounce-custom {
+            animation: bounceCustom 2s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        // 图标组件模拟 (由于不方便外挂 Lucide 库，这里使用内联 SVG)
+        const MaximizeIcon = () => (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+        );
+        const MinimizeIcon = () => (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+        );
+        const RefreshIcon = () => (
+            <svg className="animate-spin" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+        );
+
+        const DICE_FACES = {
+            1: { id: 1, title: "打篮球", scene: "⛹️‍♂️🏀🗑️🔥", description: "Look at the picture. What is he doing? (He is playing basketball.)", colorClass: "bg-gradient-to-br from-orange-400 to-red-500", targetRot: { x: 0, y: 0 } },
+            2: { id: 2, title: "写字/做作业", scene: "✍️📝📚💡", description: "Look at the picture. What is she doing? (She is writing/doing her homework.)", colorClass: "bg-gradient-to-br from-blue-400 to-indigo-600", targetRot: { x: 0, y: -90 } },
+            3: { id: 3, title: "游泳", scene: "🏊‍♀️🌊🐠☀️", description: "Look at the picture. What are they doing? (They are swimming in the sea.)", colorClass: "bg-gradient-to-br from-cyan-400 to-blue-500", targetRot: { x: 0, y: -180 } },
+            4: { id: 4, title: "唱歌", scene: "🎤🎶✨🎸", description: "Look at the picture. What is he doing? (He is singing a song.)", colorClass: "bg-gradient-to-br from-pink-400 to-rose-600", targetRot: { x: 0, y: 90 } },
+            5: { id: 5, title: "跳舞", scene: "💃🕺🪩🎉", description: "Look at the picture. What are they doing? (They are dancing at the party.)", colorClass: "bg-gradient-to-br from-purple-400 to-fuchsia-600", targetRot: { x: -90, y: 0 } },
+            6: { id: 6, title: "看书/学习", scene: "📖🐈☕🌳", description: "Look at the picture. What is she doing? (She is reading a book under the tree.)", colorClass: "bg-gradient-to-br from-emerald-400 to-teal-600", targetRot: { x: 90, y: 0 } }
+        };
+
+        const safeMod = (n, m) => ((n % m) + m) % m;
+
+        function App() {
+            const [isRolling, setIsRolling] = useState(false);
+            const [currentFaceId, setCurrentFaceId] = useState(1);
+            const [showResult, setShowResult] = useState(false);
+            const [rotation, setRotation] = useState({ x: 0, y: 0 });
+            const [isSimulatedFullscreen, setIsSimulatedFullscreen] = useState(false);
+
+            const toggleFullscreen = () => setIsSimulatedFullscreen(!isSimulatedFullscreen);
+
+            const rollDice = () => {
+                if (isRolling) return;
+                setIsRolling(true);
+                setShowResult(false);
+
+                const resultId = Math.floor(Math.random() * 6) + 1;
+                const target = DICE_FACES[resultId].targetRot;
+                const deltaX = safeMod(target.x, 360) - safeMod(rotation.x, 360);
+                const deltaY = safeMod(target.y, 360) - safeMod(rotation.y, 360);
+                const extraSpins = 1440; 
+                const newX = rotation.x + extraSpins + deltaX;
+                const newY = rotation.y + extraSpins + deltaY;
+
+                setRotation({ x: newX, y: newY });
+
+                setTimeout(() => {
+                    setIsRolling(false);
+                    setCurrentFaceId(resultId);
+                    setShowResult(true);
+                }, 2500);
+            };
+
+            const currentTask = DICE_FACES[currentFaceId];
+
+            return (
+                <div className={`bg-slate-950 text-white flex flex-col items-center justify-center font-sans overflow-hidden transition-all duration-300 ${isSimulatedFullscreen ? "fixed inset-0 z-[9999]" : "min-h-screen py-10 px-4 relative"}`}>
+                    
+                    <button onClick={toggleFullscreen} className="absolute top-6 right-6 p-3 bg-slate-800 hover:bg-slate-700 rounded-full transition-colors z-50 text-slate-400 hover:text-white shadow-lg border border-slate-700">
+                        {isSimulatedFullscreen ? <MinimizeIcon /> : <MaximizeIcon />}
+                    </button>
+
+                    <div className={`text-center max-w-lg transition-all ${isSimulatedFullscreen ? "mb-2 scale-90" : "mb-6"}`}>
+                        <h1 className="text-4xl md:text-5xl font-black mb-3 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-emerald-400 to-blue-500">
+                            ESL Visual Dice
+                        </h1>
+                        <p className="text-slate-400 text-base md:text-lg px-4">
+                            观察骰子场景，用现在进行时描述内容。
+                        </p>
+                    </div>
+
+                    <div className={`dice-scene transition-all ${isSimulatedFullscreen ? "scale-110 my-8" : ""}`}>
+                        <div className="dice-cube" style={{ transform: `translateZ(-100px) rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)` }}>
+                            {Object.values(DICE_FACES).map((face) => (
+                                <div key={face.id} className={`dice-face dice-face-${face.id} ${face.colorClass}`}>
+                                    <div className="text-6xl flex flex-wrap justify-center gap-2 px-4 text-center leading-tight">
+                                        {Array.from(face.scene).map((char, i) => (
+                                           <span key={i} className="drop-shadow-2xl">{char}</span>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className={`flex flex-col items-center gap-6 ${isSimulatedFullscreen ? "mt-4" : "mt-10"}`}>
+                        <button onClick={rollDice} disabled={isRolling} className={`px-16 py-6 rounded-3xl text-3xl font-black transition-all duration-300 transform shadow-2xl ${isRolling ? 'bg-slate-800 text-slate-600 scale-95 cursor-not-allowed' : 'bg-white text-slate-950 hover:scale-105 active:scale-95 hover:shadow-white/20'}`}>
+                            {isRolling ? <span className="flex items-center gap-4"><RefreshIcon /> ROLLING</span> : "ROLL DICE"}
+                        </button>
+
+                        <div className={`${isSimulatedFullscreen ? "h-24 scale-90" : "h-32"} flex items-center justify-center`}>
+                            {showResult && (
+                                <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-700/50 rounded-3xl px-8 py-6 shadow-2xl text-center max-w-md scale-in">
+                                    <div className="text-5xl mb-3 tracking-[0.15em] animate-bounce-custom">{currentTask.scene}</div>
+                                    <p className="text-blue-300 text-xl font-medium italic">"{currentTask.description}"</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
